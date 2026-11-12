@@ -8,7 +8,8 @@ on-board MIPI CSI camera (IMX219), but the frame/recording layer is plain NumPy 
 
 - **One `Source` interface** for every camera, yielding `Frame`s (BGR colour, uint16 depth,
   intrinsics, IMU samples):
-  - `realsense`: depth + colour (aligned to colour) + accelerometer/gyroscope in one pipeline
+  - `realsense`: depth + colour (aligned to colour) + accelerometer/gyroscope, started video-first
+    so the D435i IMU does not hang on the Nano (see below)
   - `csi[:N]`: CSI camera via `nvarguscamerasrc` (no GStreamer-enabled OpenCV needed)
   - `usb[:N|/dev/videoN]`: UVC webcams
   - a recording directory, played back through the same interface
@@ -77,7 +78,7 @@ global time, the other sources `time.time()`, so streams from different cameras 
 Standalone pyrealsense2 scripts (no `depthstudio` import), handy for checking an install:
 
 ```bash
-python3.8 examples/rs_all.py    # depth + colour + IMU in one pipeline, frame counts and gravity
+python3.8 examples/rs_all.py    # depth + colour + IMU (IMU started last), frame counts and gravity
 python3.8 examples/rs_test.py   # device info, aligned depth/colour, point cloud, separate IMU session
 ```
 
@@ -100,12 +101,18 @@ DEPTHSTUDIO_HW=1 python3.8 -m pytest -m hardware   # D435i + CSI camera attached
 
 ## Jetson Nano notes
 
-- **IMU silent / "Frame didn't arrive"**: the kernel `hid_sensor_*` drivers re-bind to the IMU
-  interface whenever librealsense releases it and reset the sensor configuration. Blacklist them
-  with `scripts/fix_imu.sh`.
-- **Separate depth and IMU sessions**: starting the IMU and the video streams in separate sessions
-  can leave the second one silent. `RealSenseSource` runs everything in one pipeline and, if any
-  requested stream does not start, resets the camera and retries once.
+- **Start the IMU after the video streams.** If the IMU is running while librealsense starts the
+  colour stream, colour often gets no frames and the IMU goes silent until the camera is
+  hardware-reset. `rs2.pipeline` always starts the IMU first, so the default pipeline
+  (`rs-hello-realsense`, `rs-save-to-disk`) and any pipeline with accel/gyro enabled fail with
+  "Frame didn't arrive". `RealSenseSource` opens the sensors itself: depth and colour first, the IMU
+  once colour frames are arriving, and it resets the camera and retries if a stream stays silent.
+  Upgrading librealsense (2.58.4) and changing firmware (5.17.3.10 → 5.17.0.10) did not help.
+  Details, measurements and diagnostic tools: [docs/realsense-imu-hang.md](docs/realsense-imu-hang.md)
+  and `scripts/diagnostics/`.
+- **Kernel HID sensor drivers**: the `hid_sensor_*` drivers re-bind to the IMU interface whenever
+  librealsense releases it; keep them blacklisted with `scripts/fix_imu.sh`. This alone does not
+  prevent the hang above.
 - **Python callbacks**: `sensor.start(callback)` deadlocks in this pyrealsense2 build; the source
   uses a `frame_queue` instead.
 - The D435i ships without IMU calibration (gravity reads ~9.57 m/s²); calibrate with

@@ -25,8 +25,22 @@ def test_realsense_depth_color_imu():
     assert 8.5 < g < 11.0  # gravity, camera at rest
 
 
+def test_realsense_after_hardware_reset():
+    # Straight after a reset, starting the IMU before colour hung the camera about half the time
+    # (docs/realsense-imu-hang.md); the video-first start order must work without a retry.
+    from depthstudio.sources.realsense import RealSenseSource
+    RealSenseSource()._hardware_reset()
+    for _ in range(3):
+        src = RealSenseSource()
+        with src:
+            frames = list(src.frames(duration=1.0))
+        assert src.resets == 0
+        assert len(frames) >= 20
+        assert {s.kind for fr in frames for s in fr.imu} == {"accel", "gyro"}
+
+
 def test_realsense_restart_cycles():
-    # separate sessions used to leave the IMU or video silent; start() must recover
+    # sessions with and without the IMU, back to back; every one must deliver
     for imu in (False, True, False, True):
         with open_source("realsense", imu=imu) as src:
             f = next(src.frames(count=1))

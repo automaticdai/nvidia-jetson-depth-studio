@@ -1,6 +1,6 @@
 # Raw pyrealsense2 check: device info, aligned depth+colour, point cloud, then the IMU in a
-# separate session. On the Jetson Nano that IMU part times out unless the camera is reset first
-# (see README, Jetson Nano notes); rs_all.py runs everything in one pipeline instead.
+# separate IMU-only session (safe: the hang needs the IMU running while colour starts, see
+# docs/realsense-imu-hang.md). rs_all.py runs video and IMU together, IMU started last.
 import time, numpy as np, pyrealsense2 as rs, cv2
 print("pyrealsense2", getattr(rs, "__version__", None) or rs.pyrealsense2.__version__)
 ctx = rs.context()
